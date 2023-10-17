@@ -9,7 +9,7 @@
 //--------------------------------------------------------------------------
 // Input/Reference Data
 
-#include "dataset1.h"
+#include "dataset2.h"
 
 void spmv(int r, const double* val, const int* idx, const double* x,
           const int* ptr, double* y)
