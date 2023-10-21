@@ -8,7 +8,7 @@ XLEN ?= 64
 
 default: all
 
-src_dir = .
+src_dir = ./benchmarks
 
 instname = riscv-bmarks
 instbasedir = $(UCB_VLSI_HOME)/install
@@ -18,6 +18,46 @@ instbasedir = $(UCB_VLSI_HOME)/install
 #--------------------------------------------------------------------
 
 bmarks = \
+	CCa \
+	CCe \
+	CCm \
+	CCl \
+	CCh \
+	CCh_st \
+	CRd \
+	CRf \
+	CS1 \
+	CS3 \
+	DP1d \
+	DP1f \
+	DPT \
+	DPTd \
+	DPcvt \
+	EF \
+	EI \
+	ED1 \
+	EM1 \
+	EM5 \
+	MC \
+	MCS \
+	MD \
+	MI \
+	MIM \
+	MIM2 \
+	MIP \
+	ML2_BW_ld \
+	ML2_BW_ldst \
+	ML2_BW_st \
+	M_Dyn \
+	STc \
+	STL2 \
+	STL2b \
+	MM \
+	MM_st \
+	ML2 \
+	ML2_st \
+	CF1 \
+	CRm \
 	median \
 	qsort \
 	rsort \
@@ -28,32 +68,34 @@ bmarks = \
 	mm \
 	dhrystone \
 	spmv \
-	mt-vvadd \
-	mt-matmul \
-	mt-memcpy \
 	pmp \
-	vec-memcpy \
-	vec-daxpy \
-	vec-sgemm \
-	vec-strcmp \
 
 #--------------------------------------------------------------------
 # Build rules
 #--------------------------------------------------------------------
 
-RISCV_PREFIX ?= riscv$(XLEN)-unknown-elf-
+RISCV_PREFIX ?= riscv$(XLEN)-linux-gnu-
 RISCV_GCC ?= $(RISCV_PREFIX)gcc
 RISCV_GCC_OPTS ?= -DPREALLOCATE=1 -mcmodel=medany -static -std=gnu99 -O2 -ffast-math -fno-common -fno-builtin-printf -fno-tree-loop-distribute-patterns -march=rv$(XLEN)gcv -mabi=lp64d
 RISCV_LINK ?= $(RISCV_GCC) -T $(src_dir)/common/test.ld $(incs)
-RISCV_LINK_OPTS ?= -static -nostdlib -nostartfiles -lm -lgcc -T $(src_dir)/common/test.ld
-RISCV_OBJDUMP ?= $(RISCV_PREFIX)objdump --disassemble-all --disassemble-zeroes --section=.text --section=.text.startup --section=.text.init --section=.data
+RISCV_LINK_OPTS ?= -static -nostdlib -nostartfiles -lm -lgcc
+RISCV_OBJDUMP ?= $(RISCV_PREFIX)objdump --disassemble-all --disassemble-zeroes
 RISCV_SIM ?= spike --isa=rv$(XLEN)gcv
+PY := python
 
 incs  += -I$(src_dir)/../env -I$(src_dir)/common $(addprefix -I$(src_dir)/, $(bmarks))
 objs  :=
 
 define compile_template
 $(1).riscv: $(wildcard $(src_dir)/$(1)/*) $(wildcard $(src_dir)/common/*)
+	@if [ -e $(src_dir)/$(1)/rand_arr_args.txt ]; then \
+		echo "Generating randArr.h for $(1)"; \
+		cat $(src_dir)/$(1)/rand_arr_args.txt; \
+		$(eval args := $(shell cat $(src_dir)/$(1)/rand_arr_args.txt)) \
+		echo "args: $(args)"; \
+		$(PY) $(src_dir)/common/rand_c_arr.py $(args); \
+		mv randArr.h $(src_dir)/$(1)/; \
+	fi
 	$$(RISCV_GCC) $$(incs) $$(RISCV_GCC_OPTS) -o $$@ $(wildcard $(src_dir)/$(1)/*.c) $(wildcard $(src_dir)/$(1)/*.S) $(wildcard $(src_dir)/common/*.c) $(wildcard $(src_dir)/common/*.S) $$(RISCV_LINK_OPTS)
 endef
 
