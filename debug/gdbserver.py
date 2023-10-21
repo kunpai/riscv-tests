@@ -221,14 +221,15 @@ class CustomRegisterTest(SimpleRegisterTest):
 
 class SimpleNoExistTest(GdbTest):
     def test(self):
+        nonexist_csr = self.hart.nonexist_csr
         try:
-            self.gdb.p("$csr2288")
-            assert False, "Reading csr2288 should have failed"
+            self.gdb.p(f"${nonexist_csr}")
+            assert False, f"Reading the ${nonexist_csr} should have failed"
         except testlib.CouldNotFetch:
             pass
         try:
-            self.gdb.p("$csr2288=5")
-            assert False, "Writing csr2288 should have failed"
+            self.gdb.p(f"${nonexist_csr}=5")
+            assert False, f"Writing the ${nonexist_csr} should have failed"
         except testlib.CouldNotFetch:
             pass
 
@@ -912,7 +913,7 @@ class RepeatReadTest(DebugTest):
     def test(self):
         self.gdb.b("main:start")
         self.gdb.c()
-        mtime_addr = 0x02000000 + 0xbff8
+        mtime_addr = self.target.clint_addr + 0xbff8
         count = 1024
         output = self.gdb.command(
             f"monitor riscv repeat_read {count} 0x{mtime_addr:x} 4")
@@ -1048,8 +1049,8 @@ class InterruptTest(GdbSingleHartTest):
 
     def postMortem(self):
         GdbSingleHartTest.postMortem(self)
-        self.gdb.p("*((long long*) 0x200bff8)")
-        self.gdb.p("*((long long*) 0x2004000)")
+        self.gdb.p(f"*((long long*) 0x{self.target.clint_addr + 0xbff8:x})")
+        self.gdb.p(f"*((long long*) 0x{self.target.clint_addr + 0x4000:x})")
         self.gdb.p("interrupt_count")
         self.gdb.p("local")
 
@@ -1863,6 +1864,7 @@ class UnavailableMultiTest(GdbTest):
         self.gdb.p("$pc=_start")
 
         self.exit()
+
 class CeaseStepiTest(ProgramTest):
     """Test that we work correctly when the hart we're debugging ceases to
     respond."""
@@ -1949,6 +1951,66 @@ class UnavailableCycleTest(ProgramTest):
         self.gdb.expect(r"\S+ became available")
         self.gdb.interrupt()
         self.gdb.p("$pc")
+
+class UnavailableHaltedTest(ProgramTest):
+    """Test behavior when the current hart becomes unavailable while halted."""
+    def early_applicable(self):
+        return self.target.support_unavailable_control
+
+    def test_resume(self, c_expect=None):
+        # Confirm things don't completely fall apart on `c`
+        self.gdb.c(wait=False)
+        if c_expect:
+            self.gdb.expect(c_expect)
+        else:
+            time.sleep(1)
+
+        # Now send a DMI command through OpenOCD to make the hart available
+        # again.
+        self.server.set_available(self.target.harts)
+
+        # The hart will show up as halted. That's just how spike behaves when we
+        # make a hart unavailable while it's halted.
+
+        self.gdb.expect("became available")
+        self.gdb.p("$minstret")
+
+    def test(self):
+        self.gdb.b("main")
+        output = self.gdb.c()
+        assertIn("Breakpoint", output)
+        assertIn("main", output)
+
+        self.server.set_available(
+                [h for h in self.target.harts if h != self.hart])
+        self.gdb.command(f"# disabled hart {self.hart.id}")
+        # gdb won't show that the hart became unavailable, because it thinks
+        # nothing can changed on a halted Linux thread.
+        try:
+            # We can't try this with something reasonable like $pc, because gdb
+            # has cached it, and it assumes the target can't change while it's
+            # halted.
+            self.gdb.p("$minstret")
+            assert False, ("Registers shouldn't be accessible when the hart is "
+                           "unavailable.")
+        except testlib.CouldNotFetch:
+            pass
+
+        # There's a breakpoint set, so gdb will single step. You can't single
+        # step an unavailable target, so gdb should get a message to that
+        # effect.
+        self.test_resume(c_expect="unavailable")
+
+        # Delete breakpoints
+        self.gdb.command("delete")
+        self.server.set_available(
+                [h for h in self.target.harts if h != self.hart])
+
+        # Resume again. With breakpoints cleared, gdb will send vCont;c instead
+        # of step. There should be no error this time, since there is no
+        # observable difference between an unavailable thread and a running
+        # thread.
+        self.test_resume()
 
 class FreeRtosTest(GdbTest):
     def early_applicable(self):
